@@ -1,0 +1,6 @@
+[submodule "Linux_BMP280_I2C_Driver"]
+	path = Linux_BMP280_I2C_Driver
+	url = https://github.com/matsozza/Linux_BMP280_I2C_Driver
+[submodule "Linux_DHT22_Kernel_Device_Driver"]
+	path = Linux_DHT22_Kernel_Device_Driver
+	url = https://github.com/matsozza/Linux_DHT22_Kernel_Device_Driver
