@@ -1,6 +1,10 @@
-[submodule "Linux_BMP280_I2C_Driver"]
-	path = Linux_BMP280_I2C_Driver
-	url = https://github.com/matsozza/Linux_BMP280_I2C_Driver
-[submodule "Linux_DHT22_Kernel_Device_Driver"]
-	path = Linux_DHT22_Kernel_Device_Driver
+[submodule "submodules/linux_rpi"]
+	path = submodules/linux_rpi
+	url = https://github.com/raspberrypi/linux.git
+	branch = rpi-6.12.y
+[submodule "submodules/dht22"]
+	path = submodules/dht22
 	url = https://github.com/matsozza/Linux_DHT22_Kernel_Device_Driver
+[submodule "submodules/bmp280"]
+	path = submodules/bmp280
+	url = https://github.com/matsozza/Linux_BMP280_I2C_Driver

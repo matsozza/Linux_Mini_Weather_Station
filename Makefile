@@ -31,24 +31,24 @@ all:
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- bcm2711_defconfig
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- prepare
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- modules_prepare
-	$(MAKE) -C ./submodules/Linux_DHT22_Kernel_Device_Driver install
+	$(MAKE) -C ./submodules/dht22 install
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Compiling submodule 2 - BMP280" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	$(MAKE) -C ./submodules/Linux_BMP280_I2C_Driver
+	$(MAKE) -C ./submodules/bmp280
 
 # Rule to test file into target
 test: $(BIN_FILES)
 	@echo "\n------------------------------------------------"
 	@echo "Sending submodule 1 files to the TARGET" | fold -w 48
 	@echo "------------------------------------------------"
-	$(MAKE) -C ./submodules/Linux_DHT22_Kernel_Device_Driver python
+	$(MAKE) -C ./submodules/dht22 python
 
 	@echo "\n------------------------------------------------"
 	@echo "Sending submodule 2 files to the TARGET" | fold -w 48
 	@echo "------------------------------------------------"
-	$(MAKE) -C ./submodules/Linux_BMP280_I2C_Driver test
+	$(MAKE) -C ./submodules/bmp280 test
 
 	@echo "\n------------------------------------------------"
 	@echo "Sending test files to the TARGET" | fold -w 48
@@ -70,7 +70,7 @@ clean:
 	@echo "Cleaning all previous build files (+submodules)   "
 	@echo "------------------------------------------------"
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- clean
-	$(MAKE) -C ./submodules/Linux_DHT22_Kernel_Device_Driver clean
+	$(MAKE) -C ./submodules/dht22 clean
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 # Rule for phony BIN_FILESs (not files)
