@@ -31,12 +31,18 @@ all:
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- bcm2711_defconfig
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- prepare
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- modules_prepare
+	$(MAKE) -C ./submodules/dht22 all
 	$(MAKE) -C ./submodules/dht22 install
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Compiling submodule 2 - BMP280" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 	$(MAKE) -C ./submodules/bmp280
+
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Moving Weather Station files to Target" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
 
 # Rule to test file into target
 test: $(BIN_FILES)
