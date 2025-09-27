@@ -40,44 +40,76 @@ all:
 	$(MAKE) -C ./submodules/bmp280
 
 	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Sending submodule 1 files to the TARGET" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	$(MAKE) -C ./submodules/dht22 python
+
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Sending submodule 2 files to the TARGET" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	$(MAKE) -C ./submodules/bmp280 test
+
+	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Moving Weather Station files to Target" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
+	scp ./database_key.json $(TAR_DEV):$(TAR_DEST)
 
-# Rule to test file into target
+
+# Rule to move+test file into target (+ all submodules)
 test: $(BIN_FILES)
-	@echo "\n------------------------------------------------"
-	@echo "Sending submodule 1 files to the TARGET" | fold -w 48
-	@echo "------------------------------------------------"
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Sending submodule 1 files to the TARGET" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
 	$(MAKE) -C ./submodules/dht22 python
 
-	@echo "\n------------------------------------------------"
-	@echo "Sending submodule 2 files to the TARGET" | fold -w 48
-	@echo "------------------------------------------------"
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Sending submodule 2 files to the TARGET" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
 	$(MAKE) -C ./submodules/bmp280 test
 
-	@echo "\n------------------------------------------------"
-	@echo "Sending test files to the TARGET" | fold -w 48
-	@echo "------------------------------------------------"
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Sending test files to the TARGET and setting permissions" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
 	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
+	scp ./database_key.json $(TAR_DEV):$(TAR_DEST)
+	ssh $(TAR_DEV) 'sudo chmod 777 weather-station.py'
 
-	@echo "\n------------------------------------------------"
-	@echo "Running test files" | fold -w 48
-	@echo "------------------------------------------------"
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Running test files" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
 	ssh $(TAR_DEV) 'sudo python -u ./weather-station.py'
+	
 
-	@echo "\n------------------------------------------------"
-	@echo "DONE!" | fold -w 48
-	@echo "------------------------------------------------"
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "DONE!" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+
+minitest:
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Sending test files to the TARGET and setting permissions" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
+	scp ./database_key.json $(TAR_DEV):$(TAR_DEST)
+	ssh $(TAR_DEV) 'sudo chmod 777 weather-station.py'
+
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Running test files" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	ssh $(TAR_DEV) 'source venv/bin/activate; sudo python ./weather-station.py'
+
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "DONE!" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
 
 # Clean rule to remove object files and binaries
 clean:
-	@echo "\n------------------------------------------------"
+	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Cleaning all previous build files (+submodules)   "
-	@echo "------------------------------------------------"
+	@echo "--------------------------------------------------------------------------------"
 	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- clean
 	$(MAKE) -C ./submodules/dht22 clean
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 # Rule for phony BIN_FILESs (not files)
-.PHONY: all clean test
+.PHONY: all clean test minitest
