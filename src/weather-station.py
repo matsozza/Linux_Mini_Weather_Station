@@ -7,6 +7,7 @@ Polling service for BMP280 + DHT22 with Firebase logging
 import time
 import logging
 import signal
+import requests
 from datetime import datetime
 
 from bmp280.bmp280 import read_bmp280_pipe
@@ -28,7 +29,7 @@ COLLECTION_NAME = "weather-data-sjc"
 # ==============================
 logging.basicConfig(
     filename=LOG_FILE,
-    level=logging.INFO,
+    level=logging.ERROR,
     format="%(asctime)s %(levelname)s: %(message)s"
 )
 logger = logging.getLogger("WeatherService")
@@ -81,6 +82,32 @@ def read_sensors():
         return None
 
 # ==============================
+# Location Data
+# ==============================
+def get_location():
+    try:
+        logger.info(f"Getting location data")        
+        response = requests.get("https://ipinfo.io/json")
+        data = response.json()
+        loc = data.get("loc", "").split(",")
+        return {
+            "city": data.get("city"),
+            "region": data.get("region"),
+            "country": data.get("country"),
+            "lat": float(loc[0]),
+            "lon": float(loc[1])
+        }
+    except Exception as e:
+        logger.error(f"Failed to get location: {e}")
+        return {
+            "city": "Error - No Data",
+            "region": "Error - No Data",
+            "country": "Error - No Data",
+            "lat": "Error - No Data",
+            "lon": "Error - No Data"
+        }
+
+# ==============================
 # Firebase Push
 # ==============================
 def push_to_firebase(database, data):
@@ -101,8 +128,9 @@ def main():
     database = init_firebase()
 
     while running:
+        location = get_location()
         data = read_sensors()
-        push_to_firebase(database, data)
+        push_to_firebase(database, {**data, **location})
         time.sleep(POLL_INTERVAL_SEC)
 
     logger.info("Weather Service stopped.")
