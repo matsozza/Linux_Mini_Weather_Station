@@ -85,7 +85,7 @@ test: $(BIN_FILES)
 	@echo "DONE!" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
 
-minitest:
+send_target:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Sending test files to the TARGET and setting permissions" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
@@ -94,9 +94,14 @@ minitest:
 	ssh $(TAR_DEV) 'sudo chmod 777 weather-station.py'
 
 	@echo "\n--------------------------------------------------------------------------------"
+	@echo "DONE!" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+
+run_target:
+	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Running test files" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	ssh $(TAR_DEV) 'source venv/bin/activate; sudo python ./weather-station.py'
+	ssh $(TAR_DEV) 'source venv/bin/activate; venv/bin/python ./weather-station.py'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "DONE!" | fold -w 80
