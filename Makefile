@@ -15,7 +15,7 @@ PY_FILES = $(wildcard $(SRC_DIR)/*.py)
 
 # Target destination
 #TAR_DEV := rpi.local
-TAR_DEV := 192.168.0.78
+TAR_DEV := matheus@192.168.0.78
 TAR_DEST := ~
 
 # Filenames
