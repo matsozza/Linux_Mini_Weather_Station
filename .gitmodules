@@ -1,5 +1,5 @@
-[submodule "submodules/linux_rpi"]
-	path = submodules/linux_rpi
+[submodule "submodules/linux"]
+	path = submodules/linux
 	url = https://github.com/raspberrypi/linux.git
 	branch = rpi-6.12.y
 [submodule "submodules/dht22"]
