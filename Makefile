@@ -89,6 +89,7 @@ send_target:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Sending test files to the TARGET and setting permissions" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
+	ssh $(TAR_DEV) 'sudo rm -rf $(PY_FILES)'
 	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
 	scp ./database_key.json $(TAR_DEV):$(TAR_DEST)
 	ssh $(TAR_DEV) 'sudo chmod 777 $(PY_NAME).py'

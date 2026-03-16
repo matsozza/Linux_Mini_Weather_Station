@@ -15,6 +15,7 @@ import fcntl
 
 from bmp280.bmp280 import read_bmp280_pipe
 from dht22_kernel.dht22 import read_dht22_data
+from weather_station_backend import WeatherStationBackend
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -22,11 +23,8 @@ from firebase_admin import credentials, firestore
 # ==============================
 # Configuration
 # ==============================
-POLL_INTERVAL_SEC = 60
-LOCATION_POLL_CYCLES = 60*24 # Once a day
-
-FIREBASE_KEY = "./database_key.json"
-RAW_COLLECTION_NAME = "weather-data-raw"
+WEATHER_DATA_POLL_INTV_SEC = 60
+LOCATION_DATA_POLL_CYCLES = 60*24 # Once a day
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, "weather-station-controller.log")
@@ -34,7 +32,6 @@ LOG_FILE = os.path.join(BASE_DIR, "weather-station-controller.log")
 # ==============================
 # Setup Logging
 # ==============================
-
 # Check if we can write to it (if not, remove it)
 if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
     os.remove(LOG_FILE)
@@ -45,14 +42,14 @@ with open(LOG_FILE, "w") as f:
 os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
 logger = logging.getLogger("WeatherStationController")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 logger.propagate = False
 
 # Individual handler
 if not logger.handlers:
     fh = logging.FileHandler(LOG_FILE)
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
-    fh.setLevel(logging.INFO)
+    fh.setLevel(logging.DEBUG)
     logger.addHandler(fh)
 
 # ==============================
@@ -63,16 +60,6 @@ def handle_signal(sig, frame):
 
 signal.signal(signal.SIGTERM, handle_signal)
 signal.signal(signal.SIGINT, handle_signal)
-
-# ==============================
-# Firebase Setup
-# ==============================
-def init_firebase():
-    logger.info("Initializing Firebase...")
-    cred = credentials.Certificate(FIREBASE_KEY)
-    firebase_admin.initialize_app(cred)
-    logger.info("Firebase initialized")
-    return firestore.client()
 
 # ==============================
 # Sensor Readout
@@ -126,22 +113,7 @@ def get_location():
         }
 
 # ==============================
-# Firebase Push
-# ==============================
-def push_raw_data_to_firebase(database, raw_data):
-    if not raw_data:
-        return
-    try:
-        raw_data['timestamp'] = datetime.now().astimezone()
-        timestamp_id = datetime.now().astimezone().strftime("%Y-%m-%d__%H-%M-%S__%z")
-        doc_ref = database.collection(RAW_COLLECTION_NAME).document(timestamp_id)
-        doc_ref.set(raw_data)
-        logger.debug("Data pushed to Firebase")
-    except Exception as e:
-        logger.error(f"Failed to push to Firebase: {e}")
-
-# ==============================
-# Main Loop
+# Worker method
 # ==============================
 def weather_station_controller_worker(stop_event):
     # Allow only one instance of the process to run
@@ -153,8 +125,12 @@ def weather_station_controller_worker(stop_event):
         sys.exit(1)
     
     # Start service - step by step
-    logger.info("Weather Service started.")
-    database = init_firebase()
+    logger.info("Weather Station Controller started.")
+    
+    # Get backend interface to the database
+    backend = WeatherStationBackend()
+    
+    # Get current location for the first time
     location = get_location()
 
     # First read of sensors - discard data, hardware initializing, possibly imprecise
@@ -165,15 +141,15 @@ def weather_station_controller_worker(stop_event):
     loc_update = 0
     while not stop_event.is_set():
         data = read_sensors()
-        push_raw_data_to_firebase(database, {**data, **location})
-        time.sleep(POLL_INTERVAL_SEC)
+        backend.push_raw_data({**data, **location})
+        time.sleep(WEATHER_DATA_POLL_INTV_SEC)
                 
         # Update location periodically
-        loc_update = (loc_update + 1) % LOCATION_POLL_CYCLES
+        loc_update = (loc_update + 1) % LOCATION_DATA_POLL_CYCLES
         if loc_update == 0:
             location = get_location()                        
 
-    logger.info("Weather Service stopped / shutdown")
+    logger.info("Weather Station Controller stopped / shutdown")
 
 if __name__ == "__main__":
     weather_station_controller_worker()

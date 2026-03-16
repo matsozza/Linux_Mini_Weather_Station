@@ -6,6 +6,7 @@ import logging
 import signal
 import fcntl
 from weather_station_controller import weather_station_controller_worker
+from weather_station_backend import weather_station_backend_worker
 
 # ==============================
 # Configuration
@@ -16,7 +17,6 @@ LOG_FILE = os.path.join(BASE_DIR, "weather-station.log")
 # ==============================
 # Setup Logging
 # ==============================
-
 # Check if we can write to it (if not, remove it)
 if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
     os.remove(LOG_FILE)
@@ -48,9 +48,9 @@ def handle_signal(sig, frame):
 signal.signal(signal.SIGTERM, handle_signal)
 signal.signal(signal.SIGINT, handle_signal)
 
-
 def start_workers():
     workers = {
+        "backend": threading.Thread(target=weather_station_backend_worker, args={shutdown_event,}, daemon=True),
         "controller": threading.Thread(target=weather_station_controller_worker, args={shutdown_event,}, daemon=True),
     }
     for name, t in workers.items():
