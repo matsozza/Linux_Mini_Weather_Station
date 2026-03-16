@@ -101,7 +101,28 @@ run_target:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Running test files" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
+	ssh $(TAR_DEV) 'sudo systemctl stop weather-station.service'
 	ssh $(TAR_DEV) 'source venv/bin/activate; venv/bin/python ./$(PY_NAME).py'
+
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "DONE!" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+
+update_service:
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Disabling and stopping service" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	ssh $(TAR_DEV) 'sudo systemctl disable weather-station.service'
+	ssh $(TAR_DEV) 'sudo systemctl stop weather-station.service'
+
+	# Copy files to target
+	$(MAKE) send_target
+
+	@echo "\n--------------------------------------------------------------------------------"
+	@echo "Enabling and starting service" | fold -w 80
+	@echo "--------------------------------------------------------------------------------"
+	ssh $(TAR_DEV) 'sudo systemctl enable weather-station.service'
+	ssh $(TAR_DEV) 'sudo systemctl start weather-station.service'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "DONE!" | fold -w 80
@@ -117,4 +138,4 @@ clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
 
 # Rule for phony BIN_FILESs (not files)
-.PHONY: all clean test minitest
+.PHONY: all clean test send_target run_target update_service
