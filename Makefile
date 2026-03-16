@@ -19,7 +19,7 @@ TAR_DEV := matheus@192.168.0.78
 TAR_DEST := ~
 
 # Filenames
-PY_NAME:=weather-station
+PY_NAME:=weather_station
 
 # File Names
 SRC_FILES:=$(wildcard $(SRC_DIR)/*.py)
@@ -73,12 +73,12 @@ test: $(BIN_FILES)
 	@echo "--------------------------------------------------------------------------------"
 	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
 	scp ./database_key.json $(TAR_DEV):$(TAR_DEST)
-	ssh $(TAR_DEV) 'sudo chmod 777 weather-station.py'
+	ssh $(TAR_DEV) 'sudo chmod 777 $(PY_NAME).py'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Running test files" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	ssh $(TAR_DEV) 'sudo python -u ./weather-station.py'
+	ssh $(TAR_DEV) 'sudo python -u ./$(PY_NAME).py'
 	
 
 	@echo "\n--------------------------------------------------------------------------------"
@@ -91,7 +91,7 @@ send_target:
 	@echo "--------------------------------------------------------------------------------"
 	scp $(PY_FILES) $(TAR_DEV):$(TAR_DEST)
 	scp ./database_key.json $(TAR_DEV):$(TAR_DEST)
-	ssh $(TAR_DEV) 'sudo chmod 777 weather-station.py'
+	ssh $(TAR_DEV) 'sudo chmod 777 $(PY_NAME).py'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "DONE!" | fold -w 80
@@ -101,7 +101,7 @@ run_target:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Running test files" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	ssh $(TAR_DEV) 'source venv/bin/activate; venv/bin/python ./weather-station.py'
+	ssh $(TAR_DEV) 'source venv/bin/activate; venv/bin/python ./$(PY_NAME).py'
 
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "DONE!" | fold -w 80

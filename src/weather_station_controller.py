@@ -8,10 +8,10 @@ import time
 import logging
 import signal
 import requests
-import os
 from datetime import datetime
-import fcntl, sys, os
-
+import os
+import sys
+import fcntl
 
 from bmp280.bmp280 import read_bmp280_pipe
 from dht22_kernel.dht22 import read_dht22_data
@@ -45,14 +45,14 @@ with open(LOG_FILE, "w") as f:
 os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
 logger = logging.getLogger("WeatherStationController")
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 logger.propagate = False
 
 # Individual handler
 if not logger.handlers:
     fh = logging.FileHandler(LOG_FILE)
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
-    fh.setLevel(logging.ERROR)
+    fh.setLevel(logging.INFO)
     logger.addHandler(fh)
 
 # ==============================
@@ -89,8 +89,8 @@ def read_sensors():
     try:
         bmp280 = read_bmp280_pipe()
         dht22 = read_dht22_data()
-        logger.info(f"DHT22: {dht22}")
-        logger.info(f"BMP280: {bmp280}")
+        logger.debug(f"DHT22: {dht22}")
+        logger.debug(f"BMP280: {bmp280}")
         return {
             "data_temp_dht22": dht22.temperature / 10,
             "data_humi_dht22": dht22.humidity / 10,
@@ -108,7 +108,7 @@ def read_sensors():
 # ==============================
 def get_location():
     try:
-        logger.info(f"Getting location data")        
+        logger.debug(f"Getting location data")        
         response = requests.get("https://ipinfo.io/json")
         data = response.json()
         loc = data.get("loc", "").split(",")
@@ -138,16 +138,16 @@ def push_raw_data_to_firebase(database, raw_data):
     try:
         doc_ref = database.collection(RAW_COLLECTION_NAME).document(f"{datetime.now()}")
         doc_ref.set(raw_data)
-        logger.info("Data pushed to Firebase")
+        logger.debug("Data pushed to Firebase")
     except Exception as e:
         logger.error(f"Failed to push to Firebase: {e}")
 
 # ==============================
 # Main Loop
 # ==============================
-def weather_station_controller_worker():
+def weather_station_controller_worker(stop_event):
     # Allow only one instance of the process to run
-    lock_file = open('/tmp/myscript.lock', 'w')
+    lock_file = open(f'/tmp/{os.path.splitext(os.path.basename(__file__))[0]}.lock', 'w')
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -158,14 +158,14 @@ def weather_station_controller_worker():
     logger.info("Weather Service started.")
     database = init_firebase()
     location = get_location()
-    
+
     # First read of sensors - discard data, hardware initializing, possibly imprecise
     read_sensors()     
     time.sleep(3)
     
     # Runtime - periodic polling
     loc_update = 0
-    while running:
+    while not stop_event.is_set():
         data = read_sensors()
         push_raw_data_to_firebase(database, {**data, **location})
         time.sleep(POLL_INTERVAL_SEC)
@@ -175,7 +175,7 @@ def weather_station_controller_worker():
         if loc_update == 0:
             location = get_location()                        
 
-    logger.info("Weather Service stopped.")
+    logger.info("Weather Service stopped / shutdown")
 
 if __name__ == "__main__":
     weather_station_controller_worker()
