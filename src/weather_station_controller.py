@@ -58,12 +58,8 @@ if not logger.handlers:
 # ==============================
 # Graceful Shutdown
 # ==============================
-running = True
-
 def handle_signal(sig, frame):
-    global running
     logger.info(f"Received signal {sig}, shutting down...")
-    running = False
 
 signal.signal(signal.SIGTERM, handle_signal)
 signal.signal(signal.SIGINT, handle_signal)
@@ -136,7 +132,9 @@ def push_raw_data_to_firebase(database, raw_data):
     if not raw_data:
         return
     try:
-        doc_ref = database.collection(RAW_COLLECTION_NAME).document(f"{datetime.now()}")
+        raw_data['timestamp'] = datetime.now().astimezone()
+        timestamp_id = datetime.now().astimezone().strftime("%Y-%m-%d__%H-%M-%S__%z")
+        doc_ref = database.collection(RAW_COLLECTION_NAME).document(timestamp_id)
         doc_ref.set(raw_data)
         logger.debug("Data pushed to Firebase")
     except Exception as e:
