@@ -10,6 +10,8 @@ import signal
 import requests
 import os
 from datetime import datetime
+import fcntl, sys, os
+
 
 from bmp280.bmp280 import read_bmp280_pipe
 from dht22_kernel.dht22 import read_dht22_data
@@ -24,10 +26,10 @@ POLL_INTERVAL_SEC = 60
 LOCATION_POLL_CYCLES = 60*24 # Once a day
 
 FIREBASE_KEY = "./database_key.json"
-COLLECTION_NAME = "weather-data-raw"
+RAW_COLLECTION_NAME = "weather-data-raw"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "weather-station.log")
+LOG_FILE = os.path.join(BASE_DIR, "weather-station-controller.log")
 
 # ==============================
 # Setup Logging
@@ -42,9 +44,16 @@ with open(LOG_FILE, "w") as f:
     f.write("Log started\n")
 os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
-logger = logging.getLogger("WeatherStation")
-logger.setLevel(logging.INFO)
+logger = logging.getLogger("WeatherStationController")
+logger.setLevel(logging.ERROR)
 logger.propagate = False
+
+# Individual handler
+if not logger.handlers:
+    fh = logging.FileHandler(LOG_FILE)
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    fh.setLevel(logging.ERROR)
+    logger.addHandler(fh)
 
 # ==============================
 # Graceful Shutdown
@@ -123,12 +132,12 @@ def get_location():
 # ==============================
 # Firebase Push
 # ==============================
-def push_to_firebase(database, data):
-    if not data:
+def push_raw_data_to_firebase(database, raw_data):
+    if not raw_data:
         return
     try:
-        doc_ref = database.collection(COLLECTION_NAME).document(f"{datetime.now()}")
-        doc_ref.set(data)
+        doc_ref = database.collection(RAW_COLLECTION_NAME).document(f"{datetime.now()}")
+        doc_ref.set(raw_data)
         logger.info("Data pushed to Firebase")
     except Exception as e:
         logger.error(f"Failed to push to Firebase: {e}")
@@ -136,28 +145,37 @@ def push_to_firebase(database, data):
 # ==============================
 # Main Loop
 # ==============================
-def main():
+def weather_station_controller_worker():
+    # Allow only one instance of the process to run
+    lock_file = open('/tmp/myscript.lock', 'w')
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        logger.error("Service already running - Unable to run another instance.")
+        sys.exit(1)
+    
+    # Start service - step by step
     logger.info("Weather Service started.")
     database = init_firebase()
     location = get_location()
     
-    # First read - discard data, hardware initializing
-    read_sensors() 
+    # First read of sensors - discard data, hardware initializing, possibly imprecise
+    read_sensors()     
+    time.sleep(3)
     
-    time.sleep(5)
-    
-    cycles = 0
+    # Runtime - periodic polling
+    loc_update = 0
     while running:
         data = read_sensors()
-        push_to_firebase(database, {**data, **location})
+        push_raw_data_to_firebase(database, {**data, **location})
         time.sleep(POLL_INTERVAL_SEC)
-        cycles = cycles + 1
-        
+                
         # Update location periodically
-        if cycles % LOCATION_POLL_CYCLES == 0:
+        loc_update = (loc_update + 1) % LOCATION_POLL_CYCLES
+        if loc_update == 0:
             location = get_location()                        
 
     logger.info("Weather Service stopped.")
 
 if __name__ == "__main__":
-    main()
+    weather_station_controller_worker()
