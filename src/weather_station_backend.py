@@ -50,8 +50,9 @@ if not logger.handlers:
 def handle_signal(sig, frame):
     logger.info(f"Received signal {sig}, shutting down...")
 
-signal.signal(signal.SIGTERM, handle_signal)
-signal.signal(signal.SIGINT, handle_signal)
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
 # ==============================
 # Backend for ext. & internal users
@@ -78,6 +79,8 @@ class WeatherStationBackend:
             logger.info("Firebase initialized")
         
             self.db = firestore.client()
+
+# ------------------------------------ Raw Data - Sample by Sample ------------------------------------
 
     def fetch_raw_data(self, timeframe: str, limit: int = 60*24) -> pd.DataFrame:
         now = datetime.now().astimezone()
@@ -109,7 +112,6 @@ class WeatherStationBackend:
             return pd.DataFrame()
 
         # Step 2: evenly spaced indices
-        import numpy as np
         limit = min(limit, len(refs)) if limit != -1 else len(refs)
         idx = np.linspace(0, len(refs) - 1, limit, dtype=int)
 
@@ -130,6 +132,8 @@ class WeatherStationBackend:
         except Exception as e:
             logger.error(f"Failed to push to Firebase: {e}")
     
+# ------------------------------------ Hourly Summary aggregation ------------------------------------
+    
     def process_hourly_summary(self, prev_hours = 24):
             """
             Sweeps the last hour(s) of raw data, calculates stats, 
@@ -138,7 +142,7 @@ class WeatherStationBackend:
             
             target_doc_ids = []
             now = datetime.now().astimezone()
-            for prev_hour in range(1, prev_hours):
+            for prev_hour in range(prev_hours):
                 target_time = (now - timedelta(hours = prev_hour)).replace(minute=0, second=0, microsecond=0)
                 target_doc_ids.append(  target_time.strftime("%Y-%m-%d__%H-%M-%S__%z")  )
             
@@ -148,8 +152,10 @@ class WeatherStationBackend:
             ]
             found_doc_ids = [d.id for d in found_doc_ids if d.exists]
             
-            # Update target docs with only the ones that aren't present in the DB
-            target_doc_ids = [doc for doc in target_doc_ids if doc not in found_doc_ids]
+            # Update target docs with only the ones that aren't present in the DB + always update the most recent / current hours
+            most_recent = target_doc_ids[0]
+            target_doc_ids = [doc for doc in target_doc_ids if (doc not in found_doc_ids)]
+            target_doc_ids.append(most_recent)
 
             for target_doc in target_doc_ids:
                 time_range_init = datetime.strptime(target_doc, "%Y-%m-%d__%H-%M-%S__%z")
@@ -210,6 +216,48 @@ class WeatherStationBackend:
                 self.db.collection("weather-data-hourly").document(target_doc).set(summary)
                 logger.info(f"Successfully saved summary to 'weather-data-hourly' with ID: {target_doc}")
     
+    def fetch_from_hourly_summary(self, timeframe = "24h", limit = -1):
+        now = datetime.now().astimezone()
+
+        lookback_map = {
+            "24h": timedelta(hours=24),
+            "7d": timedelta(days=7),
+            "1 month": timedelta(days=30),
+            "1 year": timedelta(days=365),
+            "all": timedelta(days=36500),
+        }
+
+        start_time = now - lookback_map.get(timeframe, timedelta(hours=24))
+        collection = self.db.collection(self.collection_name_hourly)
+        base_query = (
+            collection
+            .where(filter=FieldFilter("window_start", ">=", start_time))
+            .order_by("window_start")
+        )
+
+        # Step 1: fetch only references
+        refs = [doc.reference for doc in base_query.stream()]
+        if not refs:
+            return pd.DataFrame()
+
+        # Step 2: evenly spaced indices
+        limit = min(limit, len(refs)) if limit != -1 else len(refs)
+        idx = np.linspace(0, len(refs) - 1, limit, dtype=int)
+
+        # Step 3: fetch only selected docs
+        docs = [refs[i].get().to_dict() for i in idx]
+        
+        # Get raw data from databse and sort based on timestamps
+        df_raw = pd.DataFrame(docs).sort_values("window_start")
+        
+        # Create a dataframe with the main values sorted and processed
+        df = pd.DataFrame()
+        df["timestamp"] = df_raw["list_data_timestamps"].sum()
+        df["temperature"] = (pd.DataFrame(df_raw["list_data_temp_dht22_values"].sum()) +  pd.DataFrame(df_raw["list_data_temp_bmp280_values"].sum()))/2
+        df["pressure"] = df_raw["list_data_pres_bmp280_values"].sum()
+        df["humidity"] = df_raw["list_data_humi_dht22_values"].sum()
+        return df
+        
 # ==============================
 # Worker method
 # ==============================
@@ -247,28 +295,33 @@ if __name__ == "__main__":
         test_timeframe = "5m"
         logger.info(f"Fetching data for: {test_timeframe}...")
         
-        df = backend.fetch_raw_data(test_timeframe)
-        
-        # Infer current timezone and correct timestamps
-        local_tz = datetime.now().astimezone().tzinfo
-        df["timestamp"] = (pd.to_datetime(df["timestamp"], utc=True).dt.tz_convert(local_tz))   
+        if 0: 
+            df = backend.fetch_raw_data(test_timeframe)
+            
+            # Infer current timezone and correct timestamps
+            local_tz = datetime.now().astimezone().tzinfo
+            df["timestamp"] = (pd.to_datetime(df["timestamp"], utc=True).dt.tz_convert(local_tz))   
 
-        # 3. Validation
-        if df.empty:
-            logger.info("Warning: No data found in the specified range.")
-            logger.info("Check your Collection Name and Document ID format.")
-        else:
-            logger.info("\n --- DATA SUMMARY ---")
-            logger.info(f"Total Rows: {len(df)}")
-            logger.info(f"Columns: {list(df.columns)}")
-            logger.info("\nFirst 5 entries:")
-            logger.info(df[['timestamp', 'data_temp_bmp280', 'data_humi_dht22']].head())
+            # 3. Validation
+            if df.empty:
+                logger.info("Warning: No data found in the specified range.")
+                logger.info("Check your Collection Name and Document ID format.")
+            else:
+                logger.info("\n --- DATA SUMMARY ---")
+                logger.info(f"Total Rows: {len(df)}")
+                logger.info(f"Columns: {list(df.columns)}")
+                logger.info("\nFirst 5 entries:")
+                logger.info(df[['timestamp', 'data_temp_bmp280', 'data_humi_dht22']].head())
+                
+                logger.info("\n --- STATS ---")
+                logger.info(f"Average Temp (BMP280): {df['data_temp_bmp280'].mean():.2f}°C")
+                logger.info(f"Latest Timestamp: {df['timestamp'].max()}")
             
-            logger.info("\n --- STATS ---")
-            logger.info(f"Average Temp (BMP280): {df['data_temp_bmp280'].mean():.2f}°C")
-            logger.info(f"Latest Timestamp: {df['timestamp'].max()}")
+        if 0:
+            backend.process_hourly_summary()
             
-        backend.process_hourly_summary()
+        if 1:
+            backend.fetch_from_hourly_summary(24)
 
     except Exception as e:
         logger.info(f"DEBUG FAILED: {e}")

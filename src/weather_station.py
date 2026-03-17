@@ -50,8 +50,8 @@ signal.signal(signal.SIGINT, handle_signal)
 
 def start_workers():
     workers = {
-        "backend": threading.Thread(target=weather_station_backend_worker, args={shutdown_event,}, daemon=True),
-        "controller": threading.Thread(target=weather_station_controller_worker, args={shutdown_event,}, daemon=True),
+        "backend": threading.Thread(target=weather_station_backend_worker, args={shutdown_event,}, daemon=True, name="backend"),
+        "controller": threading.Thread(target=weather_station_controller_worker, args={shutdown_event,}, daemon=True, name="controller"),
     }
     for name, t in workers.items():
         logger.info(f"Starting worker '{name}' for Weather Station")        
@@ -64,7 +64,7 @@ def supervise(workers):
             if not t.is_alive():
                 logger.error(f"Worker {name} died. Restarting service.")
                 sys.exit(1)
-        time.sleep(1)
+        time.sleep(10)
 
     logger.info("Supervisor shutting down, waiting for workers...")
     for t in workers.values():
