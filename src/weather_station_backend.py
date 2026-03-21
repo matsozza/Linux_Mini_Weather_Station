@@ -10,7 +10,7 @@ import time
 import threading
 import numpy as np
 from firebase_admin import credentials, firestore
-from google.cloud import firestore as google_firestore 
+from google.cloud import firestore as google_firestore
 from google.cloud.firestore_v1 import FieldFilter
 from datetime import datetime, timedelta
 
@@ -63,8 +63,12 @@ class WeatherStationBackend:
         with WeatherStationBackend._firebase_lock:            
             # Use the same key path as your weather_service.py
             self.db_key = "./database_key.json"
+            
             self.collection_name_raw = "weather-data-raw"
-            self.collection_name_hourly = "weather-data-hourly"
+            self.collection_name_per_hour = "weather-data-per-hour"
+            self.collection_name_per_day = "weather-data-per-day"
+            
+            self.collection_name_test = "weather-data-test"
             
             # Initialize Firebase only if not already initialized
             if (not firebase_admin._apps) and (not WeatherStationBackend._initialized):
@@ -76,9 +80,9 @@ class WeatherStationBackend:
         
             self.db = firestore.client()
 
-# ------------------------------------ Raw Data - Sample by Sample ------------------------------------
+# ------------------------------- Sensor & Aggregated Data (Real Time) -------------------------------
 
-    def fetch_raw_data(self, timeframe: str, limit: int = 60*24) -> pd.DataFrame:
+    def fetch_sensor_data(self, timeframe: str, limit: int = 60*24) -> pd.DataFrame:
         now = datetime.now().astimezone()
 
         lookback_map = {
@@ -115,104 +119,8 @@ class WeatherStationBackend:
         docs = [refs[i].get().to_dict() for i in idx]
 
         return pd.DataFrame(docs).sort_values("timestamp")
-    
-    def push_raw_data(self, raw_data):
-        if not raw_data:
-            return
-        try:
-            raw_data['timestamp'] = datetime.now().astimezone()
-            timestamp_id = datetime.now().astimezone().strftime("%Y-%m-%d__%H-%M-%S__%z")
-            doc_ref = self.db.collection(self.collection_name_raw).document(timestamp_id)
-            doc_ref.set(raw_data)
-            logger.debug("Raw data pushed to Firebase")
-        except Exception as e:
-            logger.error(f"Failed to push to Firebase: {e}")
-    
-# ------------------------------------ Hourly Summary aggregation ------------------------------------
-    
-    def process_hourly_summary(self, prev_hours = 24):
-            """
-            Sweeps the last hour(s) of raw data, calculates stats, 
-            and saves to 'weather-data-hourly'.
-            """
-            
-            target_doc_ids = []
-            now = datetime.now().astimezone()
-            for prev_hour in range(prev_hours):
-                target_time = (now - timedelta(hours = prev_hour)).replace(minute=0, second=0, microsecond=0)
-                target_doc_ids.append(  target_time.strftime("%Y-%m-%d__%H-%M-%S__%z")  )
-            
-            found_doc_ids = [
-                    self.db.collection(self.collection_name_hourly).document(doc_id).get()
-                    for doc_id in target_doc_ids
-            ]
-            found_doc_ids = [d.id for d in found_doc_ids if d.exists]
-            
-            # Update target docs with only the ones that aren't present in the DB + always update the most recent / current hours
-            most_recent = target_doc_ids[0]
-            target_doc_ids = [doc for doc in target_doc_ids if (doc not in found_doc_ids)]
-            target_doc_ids.append(most_recent)
 
-            for target_doc in target_doc_ids:
-                time_range_init = datetime.strptime(target_doc, "%Y-%m-%d__%H-%M-%S__%z")
-                time_range_fin = datetime.strptime(target_doc, "%Y-%m-%d__%H-%M-%S__%z") + timedelta(hours=1)
-
-                logger.info(f"\n\nSummarizing data from {time_range_init} to {time_range_fin}...")
-                
-                # Fetch raw documents to aggregate in hourly collection
-                found_raw_doc_ids = (
-                    self.db.collection(self.collection_name_raw)
-                    .where(filter=FieldFilter("timestamp", ">=", time_range_init))
-                    .where(filter=FieldFilter("timestamp", "<=", time_range_fin))
-                    .order_by("timestamp")
-                    .stream()
-                )
-
-                raw_data_list = []
-                for raw_doc in found_raw_doc_ids:
-                    data = raw_doc.to_dict()
-                    raw_data_list.append(data)
-                if not raw_data_list:
-                    logger.info(f"No data found for {target_doc}. Skipping summary for this one.")
-                    continue
-
-                # Create dataframe and remove invalid rows
-                df = pd.DataFrame(raw_data_list)
-                cols = ["data_valid_bmp280", "data_valid_dht22"]  
-                df = df[df[cols].all(axis=1)]
-
-                # Calculate Stats                
-                summary = {
-                    "timestamp_processed": now,
-                    "window_start": time_range_init,
-                    "window_end": time_range_fin,
-                    "sample_count": len(df),
-                    "list_data_timestamps": list(df["timestamp"])
-                }
-
-                for col in df.columns:
-                    if col.startswith("data_"):
-                        if col.startswith("data_valid"):
-                            pass # Ignore validities since already filtered in dataframe
-                        else:
-                            summary[f"{col}_avg"] = float(df[col].mean())
-                            summary[f"{col}_min"] = float(df[col].min())
-                            summary[f"{col}_max"] = float(df[col].max())
-                            summary[f"{col}_std"] = float(df[col].std())
-                            summary[f"list_{col}_values"] = list(df[col])
-                    else:
-                        if col == "timestamp":
-                            pass # Ignore timestamp
-                        else:
-                            # Take the first non-null value from the column
-                            summary[col] = df[col].dropna().iloc[0]
-
-                # Save to Firestore
-                # Using the hour's start time as the Document ID keeps things organized
-                self.db.collection("weather-data-hourly").document(target_doc).set(summary)
-                logger.info(f"Successfully saved summary to 'weather-data-hourly' with ID: {target_doc}")
-    
-    def fetch_from_hourly_summary(self, timeframe = "24h", limit = -1):
+    def fetch_aggregated_data_hourly(self, timeframe = "24h", limit = -1):
         now = datetime.now().astimezone()
 
         lookback_map = {
@@ -224,7 +132,7 @@ class WeatherStationBackend:
         }
 
         start_time = now - lookback_map.get(timeframe, timedelta(hours=24))
-        collection = self.db.collection(self.collection_name_hourly)
+        collection = self.db.collection(self.collection_name_per_hour)
         base_query = (
             collection
             .where(filter=FieldFilter("window_start", ">=", start_time))
@@ -249,10 +157,75 @@ class WeatherStationBackend:
         # Create a dataframe with the main values sorted and processed
         df = pd.DataFrame()
         df["timestamp"] = df_raw["list_data_timestamps"].sum()
-        df["temperature"] = (pd.DataFrame(df_raw["list_data_temp_dht22_values"].sum()) +  pd.DataFrame(df_raw["list_data_temp_bmp280_values"].sum()))/2
-        df["pressure"] = df_raw["list_data_pres_bmp280_values"].sum()
-        df["humidity"] = df_raw["list_data_humi_dht22_values"].sum()
+        df["data_temperature"] = (pd.DataFrame(df_raw["list_data_temp_dht22_values"].sum()) +  pd.DataFrame(df_raw["list_data_temp_bmp280_values"].sum()))/2
+        df["data_pressure"] = df_raw["list_data_pres_bmp280_values"].sum()
+        df["data_humidity"] = df_raw["list_data_humi_dht22_values"].sum()
         return df
+    
+    def push_sensor_data(self, sensor_dict):
+        if not sensor_dict:
+            return
+        try:
+            sensor_dict['timestamp'] = datetime.now().astimezone()
+            timestamp_id = datetime.now().astimezone().strftime("%Y-%m-%d__%H-%M-%S__%z")
+            doc_ref = self.db.collection(self.collection_name_raw).document(timestamp_id)
+            doc_ref.set(sensor_dict)
+            logger.debug("Sensor data pushed to Firebase")
+        except Exception as e:
+            logger.error(f"Failed to push to Firebase: {e}")
+            
+    def push_aggregated_data(self, data_dict, hourly=True, daily=True, force_timestamp = None):
+        if not data_dict:
+            return
+        try:
+            # Complete timestamp
+            timestamp = None
+            if force_timestamp is None:
+                timestamp = datetime.now().astimezone()
+            else:
+                timestamp = force_timestamp
+                
+            # Hourly timestamp
+            timestamp_hourly = timestamp.replace(minute=0, second=0, microsecond=0)
+            doc_id_hourly = timestamp_hourly.strftime("%Y-%m-%d__%H-%M-%S__%z")               
+            
+            # Daily timestamp
+            timestamp_daily = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+            doc_id_daily = timestamp_daily.strftime("%Y-%m-%d_%z")
+           
+            # Prepare database document
+            doc_data = {
+                "count": firestore.Increment(1),
+                "data": firestore.ArrayUnion([{
+                            **data_dict,
+                            "timestamp": timestamp
+                        }])
+                }
+            
+            # Write to hourly collection
+            if hourly:
+                doc_ref = self.db.collection(self.collection_name_per_hour).document(doc_id_hourly)
+                doc_ref.set(doc_data, merge=True)
+            
+            # Write to daily collection
+            if daily:
+                doc_ref2 = self.db.collection(self.collection_name_per_day).document(doc_id_daily)                
+                doc_ref2.set(doc_data, merge=True)
+                                    
+            logger.debug("Sensor data pushed to Firebase")
+        except Exception as e:
+            logger.error(f"Failed to push to Firebase: {e}")
+    
+# --------------------------------------- Backend operations -----------------------------------------
+    
+    def process_hourly_summary(self, prev_hours = 24):
+            """
+            Sweeps the last hour(s) of sensor data, calculates stats, 
+            and saves to 'weather-data-hourly'.
+            """
+            
+            # TODO: Remove
+            return # Deactivated code for now
         
 # ==============================
 # Worker method
@@ -273,7 +246,7 @@ def weather_station_backend_worker(stop_event):
     logger.info("Firebase Connection Initialized.")
     
     while not stop_event.is_set():
-        backend.process_hourly_summary()
+        #backend.process_hourly_summary()
         time.sleep(PROCESS_HOURLY_SUMMARY_INTERVAL_SEC)
 
     logger.info("Weather Station Backend stopped / shutdown")
@@ -286,38 +259,69 @@ if __name__ == "__main__":
         # Initialize Service
         backend = WeatherStationBackend()
         logger.info("Firebase Connection Initialized.")
-
-        # Test Fetching
-        test_timeframe = "5m"
-        logger.info(f"Fetching data for: {test_timeframe}...")
         
-        if 0: 
-            df = backend.fetch_raw_data(test_timeframe)
-            
-            # Infer current timezone and correct timestamps
-            local_tz = datetime.now().astimezone().tzinfo
-            df["timestamp"] = (pd.to_datetime(df["timestamp"], utc=True).dt.tz_convert(local_tz))   
+        # Start to move data to new DB format
+        min_5_behind = 24*60
+        while min_5_behind > 1:
 
-            # 3. Validation
-            if df.empty:
-                logger.info("Warning: No data found in the specified range.")
-                logger.info("Check your Collection Name and Document ID format.")
-            else:
-                logger.info("\n --- DATA SUMMARY ---")
-                logger.info(f"Total Rows: {len(df)}")
-                logger.info(f"Columns: {list(df.columns)}")
-                logger.info("\nFirst 5 entries:")
-                logger.info(df[['timestamp', 'data_temp_bmp280', 'data_humi_dht22']].head())
+            time_init = datetime.now().astimezone() - timedelta(minutes = min_5_behind)
+            time_fin = time_init + timedelta(minutes=5)
+            #time_fin = time_init + timedelta(minutes= 15)
+            
+            collection = backend.db.collection(backend.collection_name_raw)
+
+            base_query = (
+                collection
+                .where(filter=FieldFilter("timestamp", ">=", time_init))
+                .where(filter=FieldFilter("timestamp", "<=", time_fin))
+                .order_by("timestamp")
+            )
+
+            # Get data from raw collection
+            docs = [doc for doc in base_query.stream()]
+            data_list = [doc.to_dict() for doc in docs]
+            
+            treated_data = []
+            for data in data_list:
+                # Initialize treated data
+                temperature = None
+                humidity = None
+                pressure = None
                 
-                logger.info("\n --- STATS ---")
-                logger.info(f"Average Temp (BMP280): {df['data_temp_bmp280'].mean():.2f}°C")
-                logger.info(f"Latest Timestamp: {df['timestamp'].max()}")
+                # Populate treated data based on sensor availability
+                if data["data_valid_dht22"] and data["data_valid_bmp280"]:
+                    temperature = data["data_temp_dht22"]*0.5 + data["data_temp_bmp280"]*0.5
+                    humidity = data["data_humi_dht22"]
+                    pressure = data["data_pres_bmp280"]               
+                elif data["data_valid_dht22"]:
+                    temperature = data["data_temp_dht22"]
+                    humidity = data["data_humi_dht22"]
+                elif data["data_valid_bmp280"]:
+                    temperature = data["data_temp_bmp280"]
+                    pressure = data["data_pres_bmp280"]  
+                else:
+                    pass
+                
+                # Return treated data dictionary
+                treated_data.append( {
+                    "loc_city": data["loc_city"],
+                    "loc_country": data["loc_country"],
+                    "loc_lat": data["loc_lat"],
+                    "loc_lon": data["loc_lon"],
+                    "loc_region": data["loc_region"],
+                    
+                    "data_temperature": (temperature),
+                    "data_humidity": (humidity),
+                    "data_pressure": (pressure),
+                    
+                    "timestamp": data["timestamp"].astimezone()
+                })
+                
             
-        if 0:
-            backend.process_hourly_summary()
-            
-        if 1:
-            backend.fetch_from_hourly_summary(24)
-
+            for idx, data in enumerate(treated_data):
+                backend.push_aggregated_data(data, force_timestamp=data["timestamp"].astimezone())                
+                    
+            min_5_behind = min_5_behind - 5
+        
     except Exception as e:
         logger.info(f"DEBUG FAILED: {e}")

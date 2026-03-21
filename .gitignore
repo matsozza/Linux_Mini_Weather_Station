@@ -1,0 +1,5 @@
+env
+*.log
+database_key.json
+*.pyc
+

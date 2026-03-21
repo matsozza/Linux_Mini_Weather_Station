@@ -60,7 +60,7 @@ if threading.current_thread() is threading.main_thread():
     signal.signal(signal.SIGINT, handle_signal)
 
 # ==============================
-# Sensor Readout
+# Sensor Readout & Treatment
 # ==============================
 def read_sensors():
     """
@@ -73,16 +73,48 @@ def read_sensors():
         logger.debug(f"DHT22: {dht22}")
         logger.debug(f"BMP280: {bmp280}")
         return {
-            "data_temp_dht22": dht22.temperature / 10,
-            "data_humi_dht22": dht22.humidity / 10,
+            "data_temp_dht22": float(dht22.temperature / 10),
+            "data_humi_dht22": float(dht22.humidity / 10),
             "data_valid_dht22": dht22.validity,
-            "data_temp_bmp280": bmp280.temperature,
-            "data_pres_bmp280": bmp280.pressure,
+            "data_temp_bmp280": float(bmp280.temperature),
+            "data_pres_bmp280": float(bmp280.pressure),
             "data_valid_bmp280": bmp280.validity,
         }
     except Exception as e:
         logger.error(f"Failed to read sensors: {e}")
         return None
+
+def treat_sensors(sensors_dict):
+    """
+    Process sensor data based on their validity and
+    populate high level environmental data
+    """
+    
+    # Initialize treated data
+    temperature = None
+    humidity = None
+    pressure = None
+    
+    # Populate treated data based on sensor availability
+    if sensors_dict["data_valid_dht22"] and  sensors_dict["data_valid_bmp280"]:
+        temperature = sensors_dict["data_temp_dht22"]*0.5 + sensors_dict["data_temp_bmp280"]*0.5
+        humidity = sensors_dict["data_humi_dht22"]
+        pressure = sensors_dict["data_pres_bmp280"]               
+    elif sensors_dict["data_valid_dht22"]:
+        temperature = sensors_dict["data_temp_dht22"]
+        humidity = sensors_dict["data_humi_dht22"]
+    elif sensors_dict["data_valid_bmp280"]:
+        temperature = sensors_dict["data_temp_bmp280"]
+        pressure = sensors_dict["data_pres_bmp280"]  
+    else:
+        pass
+    
+    # Return treated data dictionary
+    return {
+        "data_temperature": (temperature),
+        "data_humidity": (humidity),
+        "data_pressure": (pressure)
+    }
 
 # ==============================
 # Location Data
@@ -138,14 +170,21 @@ def weather_station_controller_worker(stop_event):
     # Runtime - periodic polling
     loc_update = 0
     while not stop_event.is_set():
-        data = read_sensors()
-        backend.push_raw_data({**data, **location})
-        time.sleep(WEATHER_DATA_POLL_INTV_SEC)
-                
-        # Update location periodically
+        # Read sensors and push raw data to DB
+        sensors_dict = read_sensors()
+        backend.push_sensor_data({**sensors_dict, **location})
+        
+        # Treat sensors and push treated data to DB
+        sensors_treated_dict = treat_sensors(sensors_dict)       
+        backend.push_aggregated_data({**sensors_treated_dict, **location})
+                               
+        # Update location periodically (slower than sensor polling)
         loc_update = (loc_update + 1) % LOCATION_DATA_POLL_CYCLES
         if loc_update == 0:
             location = get_location()                        
+            
+        # Time to wait until polling sensors again
+        time.sleep(WEATHER_DATA_POLL_INTV_SEC)
 
     logger.info("Weather Station Controller stopped / shutdown")
 

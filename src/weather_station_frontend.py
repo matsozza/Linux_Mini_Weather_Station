@@ -68,7 +68,7 @@ def dashboard_ui():
     def update_board():
         with st.spinner("Fetching latest data..."):
             # Ensure your backend has this specific method
-            df = backend.fetch_from_hourly_summary(timeframe)
+            df = backend.fetch_aggregated_data_hourly(timeframe)
         
         if df is None or df.empty:
             st.warning(f"No data available for timeframe: {timeframe}.")
@@ -90,10 +90,10 @@ def dashboard_ui():
 
         chart_col1, chart_col2 = st.columns(2)
         with chart_col1:
-            st.plotly_chart(create_plot(df, "temperature", "Temperature", "#EF553B"), use_container_width=True)
-            st.plotly_chart(create_plot(df, "pressure", "Atmospheric Pressure", "#636EFA"), use_container_width=True)
+            st.plotly_chart(create_plot(df, "data_temperature", "data_temperature", "#EF553B"), use_container_width=True)
+            st.plotly_chart(create_plot(df, "data_pressure", "Atmospheric Pressure", "#636EFA"), use_container_width=True)
         with chart_col2:
-            st.plotly_chart(create_plot(df, "humidity", "Relative Humidity", "#00CC96"), use_container_width=True)
+            st.plotly_chart(create_plot(df, "data_humidity", "Relative Humidity", "#00CC96"), use_container_width=True)
 
     update_board()
 
