@@ -4,6 +4,7 @@ import fcntl
 import pandas as pd
 import firebase_admin
 import logging
+import getpass
 import signal
 import time
 import threading
@@ -17,21 +18,16 @@ from datetime import datetime, timedelta
 # Configuration
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "weather-station-backend.log")
+LOG_FILE = os.path.join(BASE_DIR, f"weather_station_backend_{getpass.getuser()}.log")
 
 PROCESS_HOURLY_SUMMARY_INTERVAL_SEC = 60*5 # 5min
 
 # ==============================
 # Setup Logging
 # ==============================
-# Check if we can write to it (if not, remove it)
-if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
-    os.remove(LOG_FILE)
-
-# Recreate it (it will be empty and owned by the current user)
+# Open / Create log file
 with open(LOG_FILE, "w") as f:
     f.write("Log started\n")
-os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
 logger = logging.getLogger("WeatherStationBackend")
 logger.setLevel(logging.DEBUG)

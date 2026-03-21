@@ -3,28 +3,25 @@ import time
 import sys
 import os
 import logging
+import getpass
 import signal
 import fcntl
 from weather_station_controller import weather_station_controller_worker
 from weather_station_backend import weather_station_backend_worker
+from weather_station_frontend import weather_station_frontend_worker
 
 # ==============================
 # Configuration
 # ==============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "weather-station.log")
+LOG_FILE = os.path.join(BASE_DIR, f"weather_station_{getpass.getuser()}.log")
 
 # ==============================
 # Setup Logging
 # ==============================
-# Check if we can write to it (if not, remove it)
-if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
-    os.remove(LOG_FILE)
-
-# Recreate it (it will be empty and owned by the current user)
+# Open / Create log file
 with open(LOG_FILE, "w") as f:
     f.write("Log started\n")
-os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
 logger = logging.getLogger("WeatherStation")
 logger.setLevel(logging.INFO)
@@ -45,13 +42,15 @@ def handle_signal(sig, frame):
     logger.info(f"Received signal {sig}, shutting down workers...")
     shutdown_event.set()
 
-signal.signal(signal.SIGTERM, handle_signal)
-signal.signal(signal.SIGINT, handle_signal)
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
 def start_workers():
     workers = {
         "backend": threading.Thread(target=weather_station_backend_worker, args={shutdown_event,}, daemon=True, name="backend"),
         "controller": threading.Thread(target=weather_station_controller_worker, args={shutdown_event,}, daemon=True, name="controller"),
+        #"frontend": threading.Thread(target=weather_station_frontend_worker, args={shutdown_event,}, daemon=True, name="frontend"),
     }
     for name, t in workers.items():
         logger.info(f"Starting worker '{name}' for Weather Station")        

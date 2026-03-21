@@ -6,12 +6,14 @@ Polling service for BMP280 + DHT22 with Firebase logging
 
 import time
 import logging
+import getpass
 import signal
 import requests
 from datetime import datetime
 import os
 import sys
 import fcntl
+import threading
 
 from bmp280.bmp280 import read_bmp280_pipe
 from dht22_kernel.dht22 import read_dht22_data
@@ -27,19 +29,14 @@ WEATHER_DATA_POLL_INTV_SEC = 60
 LOCATION_DATA_POLL_CYCLES = 60*24 # Once a day
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "weather-station-controller.log")
+LOG_FILE = os.path.join(BASE_DIR, f"weather_station_controller_{getpass.getuser()}.log")
 
 # ==============================
 # Setup Logging
 # ==============================
-# Check if we can write to it (if not, remove it)
-if not os.access(LOG_FILE, os.W_OK) and os.path.exists(LOG_FILE):
-    os.remove(LOG_FILE)
-
-# Recreate it (it will be empty and owned by the current user)
+# Open / Create log file
 with open(LOG_FILE, "w") as f:
     f.write("Log started\n")
-os.chmod(LOG_FILE, 0o666) # Ensure suitable permissions for everyone
 
 logger = logging.getLogger("WeatherStationController")
 logger.setLevel(logging.DEBUG)
@@ -58,8 +55,9 @@ if not logger.handlers:
 def handle_signal(sig, frame):
     logger.info(f"Received signal {sig}, shutting down...")
 
-signal.signal(signal.SIGTERM, handle_signal)
-signal.signal(signal.SIGINT, handle_signal)
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
 # ==============================
 # Sensor Readout
