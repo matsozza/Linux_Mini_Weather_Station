@@ -68,7 +68,7 @@ def dashboard_ui():
     def update_board():
         with st.spinner("Fetching latest data..."):
             # Ensure your backend has this specific method
-            df = backend.fetch_aggregated_data_hourly(timeframe)
+            df = backend.fetch_aggregated_data_daily(timeframe)
         
         if df is None or df.empty:
             st.warning(f"No data available for timeframe: {timeframe}.")
@@ -80,11 +80,11 @@ def dashboard_ui():
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Current Temp", f"{latest['temperature']:.1f} °C")
+            st.metric("Current Temp", f"{latest['data_temperature']:.1f} °C")
         with col2:
-            st.metric("Current Pressure", f"{latest['pressure']:.1f} hPa")
+            st.metric("Current Pressure", f"{latest['data_pressure']:.1f} hPa")
         with col3:
-            st.metric("Current Humidity", f"{latest['humidity']:.1f} %")
+            st.metric("Current Humidity", f"{latest['data_humidity']:.1f} %")
 
         st.divider()
 

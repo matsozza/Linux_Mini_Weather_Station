@@ -120,7 +120,7 @@ class WeatherStationBackend:
 
         return pd.DataFrame(docs).sort_values("timestamp")
 
-    def fetch_aggregated_data_hourly(self, timeframe = "24h", limit = -1):
+    def fetch_aggregated_data_daily(self, timeframe = "24h", limit = -1):
         now = datetime.now().astimezone()
 
         lookback_map = {
@@ -131,35 +131,30 @@ class WeatherStationBackend:
             "all": timedelta(days=36500),
         }
 
+        # Preapre used timestamps for database query and for filtering
         start_time = now - lookback_map.get(timeframe, timedelta(hours=24))
-        collection = self.db.collection(self.collection_name_per_hour)
+        start_time_daily_query = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Prepare database query
+        collection = self.db.collection(self.collection_name_per_day)
         base_query = (
             collection
-            .where(filter=FieldFilter("window_start", ">=", start_time))
-            .order_by("window_start")
+            .where(filter=FieldFilter("timestamp_daily", ">=", start_time_daily_query))
         )
 
-        # Step 1: fetch only references
-        refs = [doc.reference for doc in base_query.stream()]
-        if not refs:
+        # Read from Database
+        docs = [doc.reference.get().to_dict() for doc in base_query.stream()]
+        if not docs:
             return pd.DataFrame()
-
-        # Step 2: evenly spaced indices
-        limit = min(limit, len(refs)) if limit != -1 else len(refs)
-        idx = np.linspace(0, len(refs) - 1, limit, dtype=int)
-
-        # Step 3: fetch only selected docs
-        docs = [refs[i].get().to_dict() for i in idx]
         
-        # Get raw data from databse and sort based on timestamps
-        df_raw = pd.DataFrame(docs).sort_values("window_start")
-        
-        # Create a dataframe with the main values sorted and processed
+        # Parse data to a dataframe / concatenate database documents if needed
         df = pd.DataFrame()
-        df["timestamp"] = df_raw["list_data_timestamps"].sum()
-        df["data_temperature"] = (pd.DataFrame(df_raw["list_data_temp_dht22_values"].sum()) +  pd.DataFrame(df_raw["list_data_temp_bmp280_values"].sum()))/2
-        df["data_pressure"] = df_raw["list_data_pres_bmp280_values"].sum()
-        df["data_humidity"] = df_raw["list_data_humi_dht22_values"].sum()
+        for doc in docs:
+            df = pd.concat([df, pd.DataFrame(doc['data'])], ignore_index=True)
+            
+        # Sort by timestamp + Filter by 'start_time'
+        df = df.sort_values(by="timestamp")
+        df = df[(df["timestamp"] >= start_time)]
         return df
     
     def push_sensor_data(self, sensor_dict):
@@ -174,7 +169,7 @@ class WeatherStationBackend:
         except Exception as e:
             logger.error(f"Failed to push to Firebase: {e}")
             
-    def push_aggregated_data(self, data_dict, hourly=True, daily=True, force_timestamp = None):
+    def push_aggregated_data(self, data_dict, force_timestamp = None):
         if not data_dict:
             return
         try:
@@ -184,11 +179,7 @@ class WeatherStationBackend:
                 timestamp = datetime.now().astimezone()
             else:
                 timestamp = force_timestamp
-                
-            # Hourly timestamp
-            timestamp_hourly = timestamp.replace(minute=0, second=0, microsecond=0)
-            doc_id_hourly = timestamp_hourly.strftime("%Y-%m-%d__%H-%M-%S__%z")               
-            
+                       
             # Daily timestamp
             timestamp_daily = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
             doc_id_daily = timestamp_daily.strftime("%Y-%m-%d_%z")
@@ -196,21 +187,16 @@ class WeatherStationBackend:
             # Prepare database document
             doc_data = {
                 "count": firestore.Increment(1),
+                "timestamp_daily": timestamp_daily,
                 "data": firestore.ArrayUnion([{
                             **data_dict,
                             "timestamp": timestamp
                         }])
                 }
-            
-            # Write to hourly collection
-            if hourly:
-                doc_ref = self.db.collection(self.collection_name_per_hour).document(doc_id_hourly)
-                doc_ref.set(doc_data, merge=True)
-            
+
             # Write to daily collection
-            if daily:
-                doc_ref2 = self.db.collection(self.collection_name_per_day).document(doc_id_daily)                
-                doc_ref2.set(doc_data, merge=True)
+            doc_ref = self.db.collection(self.collection_name_per_day).document(doc_id_daily)                
+            doc_ref.set(doc_data, merge=True)
                                     
             logger.debug("Sensor data pushed to Firebase")
         except Exception as e:
@@ -260,13 +246,14 @@ if __name__ == "__main__":
         backend = WeatherStationBackend()
         logger.info("Firebase Connection Initialized.")
         
-        # Start to move data to new DB format
-        min_5_behind = 24*60
-        while min_5_behind > 1:
-
-            time_init = datetime.now().astimezone() - timedelta(minutes = min_5_behind)
-            time_fin = time_init + timedelta(minutes=5)
-            #time_fin = time_init + timedelta(minutes= 15)
+        
+        if 1:
+            data = backend.fetch_aggregated_data_daily()
+        
+        if 0:
+            
+            time_init = datetime(2026, 3, 10, 14, 30, 0).astimezone() 
+            time_fin =  datetime(2026, 3, 21, 16, 13, 0).astimezone() 
             
             collection = backend.db.collection(backend.collection_name_raw)
 
@@ -283,45 +270,49 @@ if __name__ == "__main__":
             
             treated_data = []
             for data in data_list:
-                # Initialize treated data
-                temperature = None
-                humidity = None
-                pressure = None
-                
-                # Populate treated data based on sensor availability
-                if data["data_valid_dht22"] and data["data_valid_bmp280"]:
-                    temperature = data["data_temp_dht22"]*0.5 + data["data_temp_bmp280"]*0.5
-                    humidity = data["data_humi_dht22"]
-                    pressure = data["data_pres_bmp280"]               
-                elif data["data_valid_dht22"]:
-                    temperature = data["data_temp_dht22"]
-                    humidity = data["data_humi_dht22"]
-                elif data["data_valid_bmp280"]:
-                    temperature = data["data_temp_bmp280"]
-                    pressure = data["data_pres_bmp280"]  
-                else:
+                try:
+                    # Initialize treated data
+                    temperature = None
+                    humidity = None
+                    pressure = None
+                    
+                    # Populate treated data based on sensor availability
+                    if data["data_valid_dht22"] and data["data_valid_bmp280"]:
+                        temperature = data["data_temp_dht22"]*0.5 + data["data_temp_bmp280"]*0.5
+                        humidity = data["data_humi_dht22"]
+                        pressure = data["data_pres_bmp280"]               
+                    elif data["data_valid_dht22"]:
+                        temperature = data["data_temp_dht22"]
+                        humidity = data["data_humi_dht22"]
+                    elif data["data_valid_bmp280"]:
+                        temperature = data["data_temp_bmp280"]
+                        pressure = data["data_pres_bmp280"]  
+                    else:
+                        pass
+                    
+                    # Return treated data dictionary
+                    treated_data.append( {
+                        "loc_city": data["loc_city"],
+                        "loc_country": data["loc_country"],
+                        "loc_lat": data["loc_lat"],
+                        "loc_lon": data["loc_lon"],
+                        "loc_region": data["loc_region"],
+                        
+                        "data_temperature": (temperature),
+                        "data_humidity": (humidity),
+                        "data_pressure": (pressure),
+                        
+                        "timestamp": data["timestamp"].astimezone()
+                    })  
+                except Exception as e:
                     pass
-                
-                # Return treated data dictionary
-                treated_data.append( {
-                    "loc_city": data["loc_city"],
-                    "loc_country": data["loc_country"],
-                    "loc_lat": data["loc_lat"],
-                    "loc_lon": data["loc_lon"],
-                    "loc_region": data["loc_region"],
-                    
-                    "data_temperature": (temperature),
-                    "data_humidity": (humidity),
-                    "data_pressure": (pressure),
-                    
-                    "timestamp": data["timestamp"].astimezone()
-                })
-                
             
+            total = 0
             for idx, data in enumerate(treated_data):
-                backend.push_aggregated_data(data, force_timestamp=data["timestamp"].astimezone())                
-                    
-            min_5_behind = min_5_behind - 5
-        
+                if idx%5 == 0:
+                    #print(f"Date pushing - {data['timestamp'].astimezone()} - Total: {total}")
+                    backend.push_aggregated_data(data, force_timestamp=data["timestamp"].astimezone())                
+                    total = total + 1
+
     except Exception as e:
         logger.info(f"DEBUG FAILED: {e}")
