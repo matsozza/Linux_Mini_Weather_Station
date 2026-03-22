@@ -65,10 +65,7 @@ class WeatherStationBackend:
             self.db_key = "./database_key.json"
             
             self.collection_name_raw = "weather-data-raw"
-            self.collection_name_per_hour = "weather-data-per-hour"
             self.collection_name_per_day = "weather-data-per-day"
-            
-            self.collection_name_test = "weather-data-test"
             
             # Initialize Firebase only if not already initialized
             if (not firebase_admin._apps) and (not WeatherStationBackend._initialized):
@@ -204,15 +201,6 @@ class WeatherStationBackend:
             logger.error(f"Failed to push to Firebase: {e}")
     
 # --------------------------------------- Backend operations -----------------------------------------
-    
-    def process_hourly_summary(self, prev_hours = 24):
-            """
-            Sweeps the last hour(s) of sensor data, calculates stats, 
-            and saves to 'weather-data-hourly'.
-            """
-            
-            # TODO: Remove
-            return # Deactivated code for now
         
 # ==============================
 # Worker method
@@ -233,7 +221,7 @@ def weather_station_backend_worker(stop_event):
     logger.info("Firebase Connection Initialized.")
     
     while not stop_event.is_set():
-        #backend.process_hourly_summary()
+        pass # No task in backend
         time.sleep(PROCESS_HOURLY_SUMMARY_INTERVAL_SEC)
 
     logger.info("Weather Station Backend stopped / shutdown")
