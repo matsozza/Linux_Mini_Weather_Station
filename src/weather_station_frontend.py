@@ -92,7 +92,6 @@ def dashboard_ui():
         df_api["timestamp"] = pd.to_datetime(df_api["timestamp"], utc=True).dt.tz_convert(TARGET_TZ)
 
         # -------------------- Show overview of temperature --------------------
-        
         # Get timestamp of 24h ago
         target_time_24h = df_local["timestamp"].max() - pd.Timedelta(hours=24)
 

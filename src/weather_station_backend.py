@@ -261,7 +261,7 @@ class WeatherStationBackend:
             }
 
             # Preapre used timestamps for database query and for filtering
-            start_time = now - lookback_map.get(timeframe, timedelta(hours=24))
+            start_time = now - lookback_map.get(timeframe, timedelta(hours=24)) - timedelta(minutes=45) # + Extra 45min
             start_time_daily_query = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
             
             # Prepare database query
