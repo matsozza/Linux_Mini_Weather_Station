@@ -111,32 +111,6 @@ def treat_sensors(sensors_dict):
     }
 
 # ==============================
-# Location Data
-# ==============================
-def get_location():
-    try:
-        logger.debug(f"Getting location data")        
-        response = requests.get("https://ipinfo.io/json")
-        data = response.json()
-        loc = data.get("loc", "").split(",")
-        return {
-            "loc_city": data.get("city"),
-            "loc_region": data.get("region"),
-            "loc_country": data.get("country"),
-            "loc_lat": float(loc[0]),
-            "loc_lon": float(loc[1])
-        }
-    except Exception as e:
-        logger.error(f"Failed to get location: {e}")
-        return {
-            "loc_city": "Error - No Data",
-            "loc_region": "Error - No Data",
-            "loc_country": "Error - No Data",
-            "loc_lat": "Error - No Data",
-            "loc_lon": "Error - No Data"
-        }
-
-# ==============================
 # Worker method
 # ==============================
 def weather_station_controller_worker(stop_event):
@@ -155,7 +129,7 @@ def weather_station_controller_worker(stop_event):
     backend = WeatherStationBackend()
     
     # Get current location for the first time
-    location = get_location()
+    location = backend.get_current_location()
 
     # First read of sensors - discard data, hardware initializing, possibly imprecise
     read_sensors()     
@@ -170,7 +144,7 @@ def weather_station_controller_worker(stop_event):
         
         # Treat sensors and push treated data to DB
         sensors_treated_dict = treat_sensors(sensors_dict)       
-        backend.push_aggregated_data({**sensors_treated_dict, **location})
+        backend.push_sensor_aggregated_data_daily({**sensors_treated_dict, **location})
                                
         # Update location periodically (slower than sensor polling)
         loc_update = (loc_update + 1) % LOCATION_DATA_POLL_CYCLES
