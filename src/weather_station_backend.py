@@ -124,6 +124,7 @@ class WeatherStationBackend:
         now = datetime.now().astimezone()
 
         lookback_map = {
+            "1h": timedelta(hours=1),
             "24h": timedelta(hours=24),
             "7d": timedelta(days=7),
             "1 month": timedelta(days=30),
