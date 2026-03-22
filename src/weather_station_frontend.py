@@ -81,11 +81,6 @@ def dashboard_ui():
             # Create dataframes based on DB data
             df_local = backend.fetch_aggregated_data_daily(timeframe, collection="sensor")
             df_api = backend.fetch_aggregated_data_daily(timeframe, collection="api")
-        
-            # Filter local data by avg. every 5 samples
-            filtering_cols = ["data_temperature", "data_pressure", "data_humidity"]
-            df_local[filtering_cols] = df_local[filtering_cols].rolling(window=10, min_periods=1).mean()
-        
         if df_local is None or df_local.empty:
             st.warning(f"No sensor data available for timeframe: {timeframe}.")
 
@@ -95,7 +90,6 @@ def dashboard_ui():
         TARGET_TZ = 'America/Sao_Paulo'
         df_local["timestamp"] = pd.to_datetime(df_local["timestamp"], utc=True).dt.tz_convert(TARGET_TZ)
         df_api["timestamp"] = pd.to_datetime(df_api["timestamp"], utc=True).dt.tz_convert(TARGET_TZ)
-        latest = df_local.iloc[-1]
 
         # -------------------- Show overview of temperature --------------------
         
@@ -136,9 +130,15 @@ def dashboard_ui():
 
         # -------------------- Selecting weather data sources for plots --------------------
         options = st.multiselect("Select datasets to plot", ["Local", "Weather API"], default = ["Local", "Weather API"])
+        
+        # Filter local data by avg. every 10 samples (plotting only)
+        filtering_cols = ["data_temperature", "data_pressure", "data_humidity"]
+        df_local_filt = df_local
+        df_local_filt[filtering_cols] = df_local_filt[filtering_cols].rolling(window=10, min_periods=1).mean()
+        
         plot_frames = []
         if "Local" in options:
-            df_l = df_local.copy()
+            df_l = df_local_filt.copy()
             df_l["source"] = "Local"
             plot_frames.append(df_l)
 
