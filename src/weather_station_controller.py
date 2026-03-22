@@ -96,16 +96,10 @@ def treat_sensors(sensors_dict):
     pressure = None
     
     # Populate treated data based on sensor availability
-    if sensors_dict["data_valid_dht22"] and  sensors_dict["data_valid_bmp280"]:
+    if sensors_dict["data_valid_dht22"] and sensors_dict["data_valid_bmp280"]:
         temperature = sensors_dict["data_temp_dht22"]*0.5 + sensors_dict["data_temp_bmp280"]*0.5
         humidity = sensors_dict["data_humi_dht22"]
         pressure = sensors_dict["data_pres_bmp280"]               
-    elif sensors_dict["data_valid_dht22"]:
-        temperature = sensors_dict["data_temp_dht22"]
-        humidity = sensors_dict["data_humi_dht22"]
-    elif sensors_dict["data_valid_bmp280"]:
-        temperature = sensors_dict["data_temp_bmp280"]
-        pressure = sensors_dict["data_pres_bmp280"]  
     else:
         pass
     
@@ -151,7 +145,7 @@ def weather_station_controller_worker(stop_event):
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        logger.error("Service already running - Unable to run another instance.")
+        logger.error(f"Service {__file__} already running - Unable to run another instance.")
         sys.exit(1)
     
     # Start service - step by step

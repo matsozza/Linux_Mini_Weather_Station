@@ -59,6 +59,7 @@ def dashboard_ui():
     )
 
     def create_plot(df, y_axis, title, color):
+        logger.debug("Create plot")
         fig = px.line(df, x="timestamp", y=y_axis, title=title)
         fig.update_traces(line_color=color)
         fig.update_layout(height=350, margin=dict(l=20, r=20, t=40, b=20))
@@ -66,6 +67,7 @@ def dashboard_ui():
 
     @st.fragment(run_every="600s")
     def update_board():
+        logger.debug("Update board")        
         with st.spinner("Fetching latest data..."):
             # Ensure your backend has this specific method
             df = backend.fetch_aggregated_data_daily(timeframe)
@@ -97,55 +99,7 @@ def dashboard_ui():
 
     update_board()
 
-# ==============================
-# Worker method
-# ==============================
-
-def weather_station_frontend_worker(stop_event):
-    """Logic to launch and manage the Streamlit server process."""
-    
-    # Lock File
-    lock_path = f'/tmp/{os.path.splitext(os.path.basename(__file__))[0]}.lock'
-    lock_file = open(lock_path, 'w')
-    try:
-        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        logger.error("Service already running.")
-        sys.exit(1)
-
-    # Resolve Streamlit path
-    venv_bin_dir = os.path.dirname(sys.executable)
-    streamlit_path = os.path.join(venv_bin_dir, "streamlit")
-    
-    logger.info(f"Manager: Starting Streamlit from {streamlit_path}")
-    
-    process = subprocess.Popen([
-        streamlit_path, "run", sys.argv[0], 
-        "--server.address=0.0.0.0", 
-        "--server.port=8080",
-        "--server.headless=true",
-        "--server.enableCORS=false",     
-        "--server.enableXsrfProtection=false",
-        "--browser.gatherUsageStats=false"
-    ])
-
-    try:
-        while process.poll() is None: # While Streamlit is still running
-            if stop_event is not None and stop_event.is_set():
-                process.terminate() # Kill Streamlit if stop_event becomes True
-                process.wait(timeout=3)
-                break
-            time.sleep(2)
-    except Exception as e:
-        process.kill()
-    finally:
-        lock_file.close()
-
-
 if __name__ == "__main__":
-    # Check if the script is being executed BY streamlit
     if st.runtime.exists():
         dashboard_ui()
-    else:
-        # If not, this is the Manager process starting for the first time
-        weather_station_frontend_worker(None)
+    

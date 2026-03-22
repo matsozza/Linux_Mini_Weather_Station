@@ -115,6 +115,7 @@ update_service:
 	@echo "--------------------------------------------------------------------------------"
 	ssh $(TAR_DEV) 'sudo systemctl disable weather-station.service'
 	ssh $(TAR_DEV) 'sudo systemctl stop weather-station.service'
+	ssh $(TAR_DEV) 'sudo rm -rf ~/*.log'
 
 	# Copy files to target
 	$(MAKE) send_target

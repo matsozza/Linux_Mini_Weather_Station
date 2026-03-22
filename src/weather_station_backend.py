@@ -222,7 +222,7 @@ def weather_station_backend_worker(stop_event):
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        logger.error("Service already running - Unable to run another instance.")
+        logger.error(f"Service {__file__} already running - Unable to run another instance.")
         sys.exit(1)
     
     # Start service - step by step
