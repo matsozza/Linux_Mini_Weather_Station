@@ -49,8 +49,8 @@ if threading.current_thread() is threading.main_thread():
 def start_workers():
     # Start thread based workers
     workers = {
-        "backend": threading.Thread(target=weather_station_backend_worker, args={shutdown_event,}, daemon=True, name="backend"),
-        "controller": threading.Thread(target=weather_station_controller_worker, args={shutdown_event,}, daemon=True, name="controller"),
+        "backend": threading.Thread(target=weather_station_backend_worker, args=(shutdown_event,), daemon=True, name="backend"),
+        "controller": threading.Thread(target=weather_station_controller_worker, args=(shutdown_event,), daemon=True, name="controller"),
     }
     for name, t in workers.items():
         logger.info(f"Starting worker '{name}' for Weather Station")        
