@@ -28,10 +28,10 @@ all:
 	@echo "\n--------------------------------------------------------------------------------"
 	@echo "Compiling submodule 1 - DHT22" | fold -w 80
 	@echo "--------------------------------------------------------------------------------"
-	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- bcm2711_defconfig
-	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- prepare
-	$(MAKE) -C ./submodules/linux_rpi ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- modules_prepare
-	$(MAKE) -C ./submodules/dht22 all
+	#$(MAKE) -C ./submodules/linux ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- bcm2711_defconfig
+	#$(MAKE) -C ./submodules/linux ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- prepare
+	#$(MAKE) -C ./submodules/linux ARCH=arm64 CROSS_COMPILE=aarch64-rpi3-linux-gnu- modules_prepare
+	#$(MAKE) -C ./submodules/dht22 all
 	$(MAKE) -C ./submodules/dht22 install
 
 	@echo "\n--------------------------------------------------------------------------------"
