@@ -25,7 +25,7 @@ from firebase_admin import credentials, firestore
 # ==============================
 # Configuration
 # ==============================
-WEATHER_DATA_POLL_INTV_SEC = 60
+WEATHER_DATA_POLL_INTV_SEC = 15
 LOCATION_DATA_POLL_CYCLES = 60*24 # Once a day
 
 LOCAL_FILE = "./weather_station_sensor_buffer.jsonl"
@@ -141,6 +141,7 @@ def weather_station_controller_worker(stop_event):
     loc_update = 0
     while not stop_event.is_set():
         # Read sensors
+        logger.debug("\n")
         logger.debug("Reading sensors")
         sensors_dict = read_sensors()
         
@@ -159,21 +160,26 @@ def weather_station_controller_worker(stop_event):
             except Exception as e:
                 logger.debug(e)
            
-            # Push sensor data to remote database + remove local copy if successful
+            # Push sensor data to remote database + remove local copy if successful (limit pushes per cycle to don't block other sequential/cyclical tasks)
             try:                
                 remaining = []
                 with open(LOCAL_FILE, "r") as f:
                     for idx, line in enumerate(f):                        
-                        try:
-                            file_sensor_full_entry = json.loads(line)
-                            timestamp = datetime.fromisoformat(file_sensor_full_entry.pop("timestamp"))
-                            location = file_sensor_full_entry.pop("location")
-                            
-                            logger.debug(f"Pushing sensor data to DB from local file - Timestamp is {timestamp.isoformat()}; File Entry is {idx}")                
-                            backend.push_sensor_aggregated_data_daily(
-                                {**file_sensor_full_entry, **location},
-                                timestamp
-                            ) # This method throws an error in case of failure (captured in the try-except)
+                        try:                           
+                            if idx>=5: # Early-break (no long block)
+                                if idx==5:
+                                    logger.debug(f"Total of {idx} sensor entries pushed (or attempted) to DB from local file in this cycle - Starting early break")      
+                                remaining.append(line)      
+                            else: # Regular DB push
+                                file_sensor_full_entry = json.loads(line)
+                                timestamp = datetime.fromisoformat(file_sensor_full_entry.pop("timestamp"))
+                                location = file_sensor_full_entry.pop("location")
+                                
+                                logger.debug(f"Pushing sensor data to DB from local file - Timestamp is {timestamp.isoformat()}; File Entry is {idx}")                
+                                backend.push_sensor_aggregated_data_daily(
+                                    {**file_sensor_full_entry, **location},
+                                    timestamp
+                                ) # This method throws an error in case of failure (captured in the try-except)
 
                         except Exception as e:
                             logger.warning(f"Upload failed: {e}")
