@@ -80,10 +80,6 @@ class WeatherStationBackend:
         
             self.db = firestore.client()
             
-    def reconnect_firestore(self):
-        logger.info("Recreating Firestore client")
-        self.db.close()
-        self.db = firestore.client()
 
 # ----------------------------- Sensor Raw & Aggregated Data (Real Time) ----------------------------
             
@@ -120,7 +116,8 @@ class WeatherStationBackend:
             
             self.connection_error_cntr+=1            
             if self.connection_error_cntr > 10:
-                self.reconnect_firestore() # Try to reset the connection socket
+                logger.info("Error threshold exceeded - Restarting Backend client")
+                sys.exit(1)
                 self.connection_error_cntr=0                            
                 
             raise # Re-raise exception to the caller
