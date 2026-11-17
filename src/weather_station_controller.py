@@ -8,7 +8,7 @@ import time
 import logging
 import getpass
 import signal
-import requests
+import json
 from datetime import datetime
 import os
 import sys
@@ -27,6 +27,8 @@ from firebase_admin import credentials, firestore
 # ==============================
 WEATHER_DATA_POLL_INTV_SEC = 60
 LOCATION_DATA_POLL_CYCLES = 60*24 # Once a day
+
+LOCAL_FILE = "./weather_station_sensor_buffer.jsonl"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, f"weather_station_controller_{getpass.getuser()}.log")
@@ -70,8 +72,8 @@ def read_sensors():
     try:
         bmp280 = read_bmp280_pipe()
         dht22 = read_dht22_data()
-        logger.debug(f"DHT22: {dht22}")
-        logger.debug(f"BMP280: {bmp280}")
+        logger.debug(f"    DHT22: {dht22}")
+        logger.debug(f"    BMP280: {bmp280}")
         return {
             "data_temp_dht22": float(dht22.temperature / 10),
             "data_humi_dht22": float(dht22.humidity / 10),
@@ -131,20 +133,57 @@ def weather_station_controller_worker(stop_event):
     # Get current location for the first time
     location = backend.get_current_location()
 
-    # First read of sensors - discard data, hardware initializing, possibly imprecise
+    # First read of sensors - discard data, hardware initializing, possibly imprecise (observed in BMP280)
     read_sensors()     
     time.sleep(3)
     
     # Runtime - periodic polling
     loc_update = 0
     while not stop_event.is_set():
-        # Read sensors and push raw data to DB
+        # Read sensors
+        logger.debug("Reading sensors")
         sensors_dict = read_sensors()
-        backend.push_sensor_data({**sensors_dict, **location})
         
-        # Treat sensors and push treated data to DB
-        sensors_treated_dict = treat_sensors(sensors_dict)       
-        backend.push_sensor_aggregated_data_daily({**sensors_treated_dict, **location})
+        # Treat sensors data and push treated data to DB (or keep locally in case of failure)
+        if sensors_dict is not None:
+            logger.debug("Treating sensors")            
+            sensors_treated_dict = treat_sensors(sensors_dict)       
+            timestamp = datetime.now().astimezone()
+
+            # Save sensor data locally (local file system)
+            try:
+                logger.debug(f"Writing sensor data to local file - Timestamp is {timestamp.isoformat()}")                
+                os.makedirs(os.path.dirname(LOCAL_FILE), exist_ok=True)
+                with open(LOCAL_FILE, "a") as f:
+                    f.write(json.dumps({**sensors_treated_dict, "timestamp": timestamp.isoformat(), "location": location}) + "\n")
+            except Exception as e:
+                logger.debug(e)
+           
+            # Push sensor data to remote database + remove local copy if successful
+            try:                
+                remaining = []
+                with open(LOCAL_FILE, "r") as f:
+                    for idx, line in enumerate(f):                        
+                        try:
+                            file_sensor_full_entry = json.loads(line)
+                            timestamp = datetime.fromisoformat(file_sensor_full_entry.pop("timestamp"))
+                            location = file_sensor_full_entry.pop("location")
+                            
+                            logger.debug(f"Pushing sensor data to DB from local file - Timestamp is {timestamp.isoformat()}; File Entry is {idx}")                
+                            backend.push_sensor_aggregated_data_daily(
+                                {**file_sensor_full_entry, **location},
+                                timestamp
+                            ) # This method throws an error in case of failure (captured in the try-except)
+
+                        except Exception as e:
+                            logger.warning(f"Upload failed: {e}")
+                            remaining.append(line)
+
+                with open(LOCAL_FILE, "w") as f:
+                    f.writelines(remaining)
+                
+            except Exception as e:
+                logger.debug(e)                     
                                
         # Update location periodically (slower than sensor polling)
         loc_update = (loc_update + 1) % LOCATION_DATA_POLL_CYCLES

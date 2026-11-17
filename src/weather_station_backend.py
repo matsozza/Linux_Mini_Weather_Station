@@ -80,60 +80,17 @@ class WeatherStationBackend:
             self.db = firestore.client()
 
 # ----------------------------- Sensor Raw & Aggregated Data (Real Time) ----------------------------
-
-    def fetch_sensor_data(self, timeframe: str, limit: int = 60*24) -> pd.DataFrame:
-        try:
-            now = datetime.now().astimezone()
-
-            lookback_map = {
-                "5m": timedelta(minutes=5),
-                "1h": timedelta(hours=1),
-                "24h": timedelta(hours=24),
-                "7d": timedelta(days=7),
-                "1 month": timedelta(days=30),
-                "1 year": timedelta(days=365),
-                "all": timedelta(days=36500),
-            }
-
-            start_time = now - lookback_map.get(timeframe, timedelta(hours=24))
-
-            collection = self.db.collection(self.collection_name_raw)
-
-            base_query = (
-                collection
-                .where(filter=FieldFilter("timestamp", ">=", start_time))
-                .order_by("timestamp")
-            )
-
-            # Step 1: fetch only references
-            refs = [doc.reference for doc in base_query.stream()]
-
-            if not refs:
-                return pd.DataFrame()
-
-            # Step 2: evenly spaced indices
-            limit = min(limit, len(refs)) if limit != -1 else len(refs)
-            idx = np.linspace(0, len(refs) - 1, limit, dtype=int)
-
-            # Step 3: fetch only selected docs
-            docs = [refs[i].get().to_dict() for i in idx]
-            return pd.DataFrame(docs).sort_values("timestamp")
-        
-        except Exception as e:
-            logger.error(f"Failed to fetch sensor data from Firebase - {e}")
-            return pd.DataFrame()
-
-    def push_sensor_data(self, sensor_dict):
-        if not sensor_dict:
-            return
-        try:
-            sensor_dict['timestamp'] = datetime.now().astimezone()
-            timestamp_id = datetime.now().astimezone().strftime("%Y-%m-%d__%H-%M-%S__%z")
-            doc_ref = self.db.collection(self.collection_name_raw).document(timestamp_id)
-            doc_ref.set(sensor_dict)
-            logger.debug("Sensor data pushed to Firebase")
-        except Exception as e:
-            logger.error(f"Failed to push to Firebase: {e}")
+    # def push_sensor_data(self, sensor_dict):
+    #     if not sensor_dict:
+    #         return
+    #     try:
+    #         sensor_dict['timestamp'] = datetime.now().astimezone()
+    #         timestamp_id = datetime.now().astimezone().strftime("%Y-%m-%d__%H-%M-%S__%z")
+    #         doc_ref = self.db.collection(self.collection_name_raw).document(timestamp_id)
+    #         doc_ref.set(sensor_dict)
+    #         logger.debug("Sensor data pushed to Firebase")
+    #     except Exception as e:
+    #         logger.error(f"Failed to push to Firebase: {e}")
             
     def push_sensor_aggregated_data_daily(self, data_dict, force_timestamp = None):
         if not data_dict:
@@ -167,10 +124,10 @@ class WeatherStationBackend:
             logger.debug("Sensor data pushed to Firebase")
         except Exception as e:
             logger.error(f"Failed to push sensor data to Firebase: {e}")
+            raise # Re-raise exception to the caller
     
 # ------------------------------ Weather API Data (from external service) ---------------------------
-        
-    def query_and_push_weather_api_aggregated_data_daily(self):
+    def query_and_push_weather_api_aggregated_data_daily(self, force_ts = None):
         try:
             loc_data = self.get_current_location()
 
@@ -196,7 +153,9 @@ class WeatherStationBackend:
             api_data["data_pressure"] = current.get("surface_pressure")/10
             
             # Push to database
-            timestamp = datetime.now().astimezone()
+            timestamp=force_ts # Override timestamp
+            if force_ts is None:
+                timestamp = datetime.now().astimezone()
                                    
             # Daily timestamp
             timestamp_daily = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -247,20 +206,63 @@ class WeatherStationBackend:
             }
 
 # ------------------------------------- Data Fetchers - Common ---------------------------------------
+    def fetch_sensor_data(self, timeframe: str, limit: int = 60*24) -> pd.DataFrame:
+        try:
+            now = datetime.now().astimezone()
+
+            lookback_map = {
+                "5m": timedelta(minutes=5),
+                "1h": timedelta(hours=1),
+                "24h": timedelta(hours=24),
+                "7d": timedelta(days=7),
+                "1 month": timedelta(days=30),
+                "3 months": timedelta(days=90),
+                "6 months": timedelta(days=180),
+                "1 year": timedelta(days=365),
+                "all": timedelta(days=36500),
+            }
+
+            start_time = now - lookback_map.get(timeframe, timedelta(hours=24))
+            collection = self.db.collection(self.collection_name_raw)
+            base_query = (
+                collection
+                .where(filter=FieldFilter("timestamp", ">=", start_time))
+                .order_by("timestamp")
+            )
+
+            # Step 1: fetch only references
+            refs = [doc.reference for doc in base_query.stream()]
+            if not refs:
+                return pd.DataFrame()
+
+            # Step 2: evenly spaced indices
+            limit = min(limit, len(refs)) if limit != -1 else len(refs)
+            idx = np.linspace(0, len(refs) - 1, limit, dtype=int)
+
+            # Step 3: fetch only selected docs
+            docs = [refs[i].get().to_dict() for i in idx]
+            return pd.DataFrame(docs).sort_values("timestamp")
+        
+        except Exception as e:
+            logger.error(f"Failed to fetch sensor data from Firebase - {e}")
+            return pd.DataFrame()
 
     def fetch_aggregated_data_daily(self, timeframe = "24h", collection = "sensor", limit = -1):
         try:
             now = datetime.now().astimezone()
             lookback_map = {
+                "5m": timedelta(minutes=5),
                 "1h": timedelta(hours=1),
                 "24h": timedelta(hours=24),
                 "7d": timedelta(days=7),
                 "1 month": timedelta(days=30),
+                "3 months": timedelta(days=90),
+                "6 months": timedelta(days=180),
                 "1 year": timedelta(days=365),
                 "all": timedelta(days=36500),
             }
 
-            # Preapre used timestamps for database query and for filtering
+            # Prepare used timestamps for database query and for filtering
             start_time = now - lookback_map.get(timeframe, timedelta(hours=24)) - timedelta(minutes=45) # + Extra 45min
             start_time_daily_query = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
             
@@ -326,11 +328,7 @@ if __name__ == "__main__":
         backend = WeatherStationBackend()
         logger.info("Firebase Connection Initialized.")
         
-        
         if 1:
-            backend.query_and_push_weather_api_aggregated_data_daily()
-        
-        if 0:
             data = backend.fetch_aggregated_data_daily()
         
         if 0:
