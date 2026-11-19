@@ -10,10 +10,12 @@ import time
 import threading
 import numpy as np
 import requests
+import sqlite3
+from pathlib import Path
 from firebase_admin import credentials, firestore
 from google.cloud import firestore as google_firestore
 from google.cloud.firestore_v1 import FieldFilter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ==============================
 # Configuration
@@ -70,6 +72,12 @@ class WeatherStationBackend:
             
             self.connection_error_cntr = 0
             
+            self.cache_db = "weather_station_cache.db"
+            self._initialize_cache()
+            
+            self._cache_last_full_sync_date = None
+            self._cache_last_sync_time = None
+            
             # Initialize Firebase only if not already initialized
             if (not firebase_admin._apps) and (not WeatherStationBackend._initialized):
                 logger.info("Initializing Firebase...")
@@ -80,6 +88,33 @@ class WeatherStationBackend:
         
             self.db = firestore.client()
             
+    def _initialize_cache(self):
+        """Initialize local SQLite cache."""
+
+        with sqlite3.connect(self.cache_db) as conn:
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS weather_cache (
+                    timestamp TEXT NOT NULL,
+                    source TEXT NOT NULL,
+
+                    temperature REAL,
+                    pressure REAL,
+                    humidity REAL,
+
+                    loc_lat REAL,
+                    loc_lon REAL,
+
+                    PRIMARY KEY (timestamp, source)
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_weather_cache_source_timestamp
+                ON weather_cache(source, timestamp)
+            """)
+
+        logger.info("SQLite cache initialized")
 
 # ----------------------------- Sensor Raw & Aggregated Data (Real Time) ----------------------------
             
@@ -250,6 +285,121 @@ class WeatherStationBackend:
             logger.error(f"Failed to fetch aggregated daily data from Firebase - {e}")
             return pd.DataFrame()
 
+    def sync_local_cache_aggregated_data_daily(self):
+        """Synchronize Firestore weather data with the local SQLite cache."""
+
+        now = datetime.now(timezone.utc)
+        today = now.date()
+
+        # Decide between full and incremental sync
+        full_sync = self._cache_last_full_sync_date != today
+
+        if full_sync:
+            start_time = now - timedelta(days=365)
+            logger.info("Starting full cache sync (last 365 days)")
+        else:
+            start_time = self._cache_last_sync_time - timedelta(minutes=10)
+            logger.info("Starting incremental cache sync")
+
+        # Firestore query works at the daily-document level
+        start_time_daily = start_time.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        collections = [
+            (self.collection_name_per_day, "sensor"),
+            (self.collection_name_api, "api"),
+        ]
+
+        rows = []
+
+        try:
+            for collection_name, source in collections:
+
+                docs = (
+                    self.db.collection(collection_name)
+                    .where(
+                        filter=FieldFilter(
+                            "timestamp_daily", ">=", start_time_daily
+                        )
+                    )
+                    .stream()
+                )
+
+                for doc in docs:
+                    data = doc.to_dict().get("data", [])
+
+                    for item in data:
+                        timestamp = item.get("timestamp")
+
+                        if timestamp is None:
+                            continue
+
+                        # Normalize timestamp to UTC
+                        if isinstance(timestamp, str):
+                            timestamp = datetime.fromisoformat(
+                                timestamp.replace("Z", "+00:00")
+                            )
+
+                        if timestamp.tzinfo is None:
+                            timestamp = timestamp.replace(tzinfo=timezone.utc)
+                        else:
+                            timestamp = timestamp.astimezone(timezone.utc)
+
+                        # Discard records outside the desired window
+                        if timestamp < start_time:
+                            continue
+
+                        rows.append((
+                            timestamp.isoformat(),
+                            source,
+                            item.get("data_temperature"),
+                            item.get("data_pressure"),
+                            item.get("data_humidity"),
+                            item.get("loc_lat"),
+                            item.get("loc_lon"),
+                        ))
+
+            # Insert or update SQLite records
+            with sqlite3.connect(self.cache_db) as conn:
+                conn.executemany("""
+                    INSERT INTO weather_cache (
+                        timestamp, source, temperature, pressure,
+                        humidity, loc_lat, loc_lon
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+
+                    ON CONFLICT(timestamp, source) DO UPDATE SET
+                        temperature = COALESCE(
+                            excluded.temperature, weather_cache.temperature
+                        ),
+                        pressure = COALESCE(
+                            excluded.pressure, weather_cache.pressure
+                        ),
+                        humidity = COALESCE(
+                            excluded.humidity, weather_cache.humidity
+                        ),
+                        loc_lat = COALESCE(
+                            excluded.loc_lat, weather_cache.loc_lat
+                        ),
+                        loc_lon = COALESCE(
+                            excluded.loc_lon, weather_cache.loc_lon
+                        )
+                """, rows)
+
+            # Update sync state only after successful completion
+            self._cache_last_sync_time = now
+
+            if full_sync:
+                self._cache_last_full_sync_date = today
+
+            logger.info(
+                f"Cache sync completed: {len(rows)} records processed"
+            )
+
+        except Exception:
+            logger.exception("Cache synchronization failed")
+
 # ==============================
 # Worker method
 # ==============================
@@ -270,6 +420,7 @@ def weather_station_backend_worker(stop_event):
     
     while not stop_event.is_set():
         backend.query_and_push_weather_api_aggregated_data_daily()
+        backend.sync_local_cache_aggregated_data_daily()
         time.sleep(BACKEND_WORKER_INTERVAL_SEC)
 
     logger.info("Weather Station Backend stopped / shutdown")
