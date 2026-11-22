@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(BASE_DIR, f"weather_station_backend_{getpass.getuser()}.log")
 
-BACKEND_WORKER_INTERVAL_SEC = 60*5 # 5min
+BACKEND_WORKER_INTERVAL_SEC = 60*1 # 1min
 
 # ==============================
 # Setup Logging
@@ -298,7 +298,7 @@ class WeatherStationBackend:
             start_time = now - timedelta(days=365)
             logger.info("Starting full cache sync (last 365 days)")
         else:
-            start_time = self._cache_last_sync_time - timedelta(minutes=10)
+            start_time = self._cache_last_sync_time - timedelta(hours=36)
             logger.info("Starting incremental cache sync")
 
         # Firestore query works at the daily-document level

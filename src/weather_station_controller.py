@@ -25,7 +25,7 @@ from firebase_admin import credentials, firestore
 # ==============================
 # Configuration
 # ==============================
-WEATHER_DATA_POLL_INTV_SEC = 15
+WEATHER_DATA_POLL_INTV_SEC = 30
 LOCATION_DATA_POLL_CYCLES = 60*24 # Once a day
 
 LOCAL_FILE = "./weather_station_sensor_buffer.jsonl"
